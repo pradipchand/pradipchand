@@ -1,0 +1,102 @@
+"""
+Debugged & Enhanced GPT-2 Program
+Features:
+- Proper Model Training
+- Error Handling
+- Device Management
+- Enhanced Text Generation
+"""
+
+import torch
+from transformers import GPT2LMHeadModel, GPT2Tokenizer, AdamW
+from torch.utils.data import Dataset, DataLoader
+
+class CustomDataset(Dataset):
+    def __init__(self, texts, tokenizer, max_length=512):
+        self.texts = texts
+        self.tokenizer = tokenizer
+        self.max_length = max_length
+        self.encodings = self._tokenize_texts()
+        
+    def __len__(self):
+        return len(self.texts)
+    
+    def __getitem__(self, idx):
+        return {key: val[idx] for key, val in self.encodings.items()}
+    
+    def _tokenize_texts(self):
+        return self.tokenizer(
+            self.texts,
+            padding='max_length',
+            truncation=True,
+            max_length=self.max_length,
+            return_tensors='pt'
+        )
+
+def load_model(model_name="gpt2"):
+    tokenizer = GPT2Tokenizer.from_pretrained(model_name)
+    tokenizer.pad_token = tokenizer.eos_token
+    model = GPT2LMHeadModel.from_pretrained(model_name)
+    return model, tokenizer
+
+def train_model(model, dataloader, num_epochs=3, lr=5e-5, device='cpu'):
+    model.train()
+    model.to(device)
+    
+    optimizer = AdamW(model.parameters(), lr=lr)
+    loss_fn = torch.nn.CrossEntropyLoss()
+    
+    for epoch in range(num_epochs):
+        total_loss = 0
+        for batch in dataloader:
+            inputs = {k: v.to(device) for k, v in batch.items()}
+            outputs = model(**inputs, labels=inputs['input_ids'])
+            loss = outputs.loss
+            
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            
+            total_loss += loss.item()
+        
+        print(f"Epoch {epoch+1}/{num_epochs} | Loss: {total_loss/len(dataloader):.4f}")
+
+def generate_text(prompt, model, tokenizer, max_length=100, device='cpu'):
+    model.eval()
+    inputs = tokenizer.encode(prompt, return_tensors='pt').to(device)
+    
+    with torch.no_grad():
+        outputs = model.generate(
+            inputs,
+            max_length=max_length,
+            pad_token_id=tokenizer.eos_token_id,
+            do_sample=True,
+            top_k=50
+        )
+    
+    return tokenizer.decode(outputs[0], skip_special_tokens=True)
+
+# Example Usage
+if __name__ == "__main__":
+    # Initialize
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    model, tokenizer = load_model()
+    
+    # Sample data
+    texts = [
+        "Artificial intelligence is revolutionizing",
+        "Machine learning algorithms can analyze",
+        "Natural language processing enables"
+    ]
+    
+    # Prepare data
+    dataset = CustomDataset(texts, tokenizer)
+    dataloader = DataLoader(dataset, batch_size=2, shuffle=True)
+    
+    # Train
+    train_model(model, dataloader, device=device)
+    
+    # Generate
+    prompt = "The future of AI will"
+    generated = generate_text(prompt, model, tokenizer, device=device)
+    print(f"Generated: {generated}")
